@@ -13,16 +13,16 @@ class Rev3DCNN(nn.Module):
 
     Args:
         msfa (torch.Tensor): MSFA to use against the raw data (shape: C x X x Y).
-        n_bands (int): number of bands.
         n_blocks (int): number of reversible blocks.
         n_split (int): number of splits in each rev block.
     """
-    def __init__(self, msfa: torch.Tensor, n_bands: int, n_blocks: int, n_split: int):
+    def __init__(self, msfa: torch.Tensor, n_blocks: int, n_split: int):
         super(Rev3DCNN, self).__init__()
 
         # unflatten raw data
         self.unflatten = Unflatten(msfa)
         
+        n_bands = msfa.shape[0]
         # encoding / feature extraction
         self.conv1 = nn.Sequential(
             nn.Conv3d(n_bands, 16, kernel_size=5, stride=1, padding=2),
