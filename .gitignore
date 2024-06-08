@@ -1,3 +1,13 @@
+# ------------- |
+# PROJECT STUFF |
+# ------------- |
+data/
+
+
+# ------------ |
+# PYTHON STUFF |
+# ------------ |
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
