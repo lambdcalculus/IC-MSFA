@@ -61,8 +61,8 @@ class Unflatten():
         # Remembering that we can be taking in either [batch_size, W, H] or [W, H] for the image,
         # so we're using negative indices to access the width and height.
         rx = img.size()[-2] // self.msfa.size()[-2] + 1
-        ry = img.size()[-1] // self.msfa.size()[-2] + 1
-        repeated_msfa = self.msfa.repeat(1, rx, ry)[:, :img.size()[1], :img.size()[2]]
+        ry = img.size()[-1] // self.msfa.size()[-1] + 1
+        repeated_msfa = self.msfa.repeat(1, rx, ry)[:, :img.size()[-2], :img.size()[-1]]
 
         # Then, we expand the image to match the number of bands.
         if len(img.size()) > 2:

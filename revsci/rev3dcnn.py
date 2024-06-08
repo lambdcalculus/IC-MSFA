@@ -1,23 +1,23 @@
 import torch
 import torch.nn as nn
+from torch.optim import Optimizer
 from .revblock import RevBlock
-from ..transforms import Unflatten
+from transforms import Unflatten
+from typing import Callable
 
 class Rev3DCNN(nn.Module):
     """
-    Implementation of RevSCI.
+    Implementation of RevSCI, from:
+    Z. Cheng et al., "Memory-Efficient Network for Large-scale Video Compressive Sensing," doi: 10.1109/CVPR46437.2021.01598.
+    And code based on: https://github.com/BoChenGroup/RevSCI-net.
 
-    TODO: document more.
+    Args:
+        msfa (torch.Tensor): MSFA to use against the raw data (shape: C x X x Y).
+        n_bands (int): number of bands.
+        n_blocks (int): number of reversible blocks.
+        n_split (int): number of splits in each rev block.
     """
     def __init__(self, msfa: torch.Tensor, n_bands: int, n_blocks: int, n_split: int):
-        """
-        Rev3DCNN's constructor.
-        
-        :param torch.Tensor msfa: MSFA to use against the raw data
-        :param int n_bands: Number of bands/channels
-        :param int n_blocks: Number of RevBlocks
-        :param int n_split: Number of features in each RevBlock  
-        """
         super(Rev3DCNN, self).__init__()
 
         # unflatten raw data
@@ -49,42 +49,34 @@ class Rev3DCNN(nn.Module):
             nn.LeakyReLU(inplace=True),
             nn.Conv3d(32, 16, kernel_size=1, stride=1),
             nn.LeakyReLU(inplace=True),
-            nn.Conv3d(16, 1, kernel_size=3, stride=1, padding=1),
+            nn.Conv3d(16, n_bands, kernel_size=3, stride=1, padding=1),
         )
 
-
     def forward(self, raw: torch.Tensor):
-        out: torch.Tensor
+        """
+        Args:
+            raw (torch.Tensor): the raw single-channel image (shape: B x 1 x W x H).
 
+        Returns:
+            torch.Tensor: the demosaicked image (shape: B x C x W x H).
+        """
         out = self.unflatten(raw)
-        out = self.conv1(out)
+        out = self.conv1(out.unsqueeze(2))
         for layer in self.layers:
             out = layer(out)
-        out = self.conv2(out)
+        out = self.conv2(out).squeeze(2)
         return out
 
-        # batch_size = meas_re.shape[0]
-        # mask = self.mask.to(meas_re.device)
-        # maskt = mask.expand([batch_size, args.B, args.size[0], args.size[1]])
-        # maskt = maskt.mul(meas_re)
-        # data = meas_re + maskt
-        # out = self.conv1(torch.unsqueeze(data, 1))
+    def for_backward(self, raw: torch.Tensor, gt: torch.Tensor, loss: Callable, opt: Optimizer):
+        """
+        Reverse training. Uses less memory, but is slower.
 
-        # for layer in self.layers:
-        #     out = layer(out)
-
-        # out = self.conv2(out)
-
-
-    def for_backward(self, mask, meas_re, gt, loss, opt, args):
-        batch_size = meas_re.shape[0]
-        maskt = mask.expand([batch_size, args.B, args.size[0], args.size[1]])
-        maskt = maskt.mul(meas_re)
-        data = meas_re + maskt
-        data = torch.unsqueeze(data, 1)
+        TODO: document more
+        """
+        out = self.unflatten(raw)
 
         with torch.no_grad():
-            out1 = self.conv1(data)
+            out1 = self.conv1(out)
             out2 = out1
             for layer in self.layers:
                 out2 = layer(out2)
@@ -105,7 +97,7 @@ class Rev3DCNN(nn.Module):
             current_state_grad = out_pre.grad
             out_current = out_pre
 
-        out1 = self.conv1(data)
+        out1 = self.conv1(out)
         out1.requires_grad_()
         torch.autograd.backward(out1, grad_tensors=current_state_grad)
         if opt != 0:
