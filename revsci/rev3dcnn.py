@@ -3,7 +3,7 @@ import torch.nn as nn
 from torch.optim import Optimizer
 from .revblock import RevBlock
 from transforms import Unflatten
-from typing import Callable
+from typing import Callable, Optional, Tuple
 
 class Rev3DCNN(nn.Module):
     """
@@ -60,47 +60,75 @@ class Rev3DCNN(nn.Module):
         Returns:
             torch.Tensor: the demosaicked image (shape: B x C x W x H).
         """
-        out = self.unflatten(raw)
+        out: torch.Tensor = self.unflatten(raw)
         out = self.conv1(out.unsqueeze(2))
         for layer in self.layers:
             out = layer(out)
         out = self.conv2(out).squeeze(2)
         return out
 
-    def for_backward(self, raw: torch.Tensor, gt: torch.Tensor, loss: Callable, opt: Optimizer):
+    def for_backward(self,
+                     raw: torch.Tensor,
+                     gt: torch.Tensor,
+                     loss_fn: Callable,
+                     opt: Optional[Optimizer]) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Reverse training. Uses less memory, but is slower.
+        Memory-efficient training using reversability. Uses less memory, but takes longer.
+        Executes one mini-batch backpropagation.
 
-        TODO: document more
+        Args:
+            raw (torch.Tensor): batch to run (shape: B x 1 x W x H)
+            gt (torch.Tensor): ground-truth/target (shape: B x C x W x H)
+            loss_fn (Callable): loss function to use
+            opt (torch.Optimizer): optimizer to use (optional)
+
+        Returns:
+            torch.Tensor: the model's predcition
+            torch.Tensor: the loss from prediction vs. ground-truth
         """
-        out = self.unflatten(raw)
+        # TODO: it may be possible to optimize this further? as things are currently,
+        # we're going through every layer except conv2 twice
 
+        unf: torch.Tensor = self.unflatten(raw)
+
+        # only compute grads for conv2
         with torch.no_grad():
-            out1 = self.conv1(out)
-            out2 = out1
+            out: torch.Tensor = self.conv1(unf.unsqueeze(2))
             for layer in self.layers:
-                out2 = layer(out2)
-        out3 = out2.requires_grad_()
-        out4 = self.conv2(out3)
+                out = layer(out)
+        out = out.requires_grad_()
+        pred: torch.Tensor = self.conv2(out)
 
-        loss1 = loss(torch.squeeze(out4), gt)
-        loss1.backward()
-        current_state_grad = out3.grad
+        # back-propagate, only until right before conv2
+        loss = loss_fn(pred.squeeze(2), gt)
+        loss.backward()
 
-        out_current = out3
+        # setting up reversal
+        out_curr = out
+        last_grad = out.grad
+        # we go through layers in reverse, saving only the gradients we need and
+        # thus saving up on memory
         for layer in reversed(self.layers):
+            # we reverse, so we can forward again and get the grads
             with torch.no_grad():
-                out_pre = layer.reverse(out_current)
+                out_pre = layer.reverse(out_curr)
             out_pre.requires_grad_()
-            out_cur = layer(out_pre)
-            torch.autograd.backward(out_cur, grad_tensors=current_state_grad)
-            current_state_grad = out_pre.grad
-            out_current = out_pre
 
-        out1 = self.conv1(out)
-        out1.requires_grad_()
-        torch.autograd.backward(out1, grad_tensors=current_state_grad)
-        if opt != 0:
+            # the values on this tensor are the same as out_curr, but they have gradients now
+            # TODO: maybe something more manual would be faster? we already have out_cur without
+            # gradients, maybe there's a quicker way to set them up
+            out_curr_with_grad: torch.Tensor = layer(out_pre)
+            out_curr_with_grad.backward(gradient=last_grad)
+
+            # set up next iteration
+            last_grad = out_pre.grad
+            out_curr = out_pre
+
+        # now back-propagate conv1
+        out = self.conv1(unf)
+        out.requires_grad_()
+        out.backward(gradient=last_grad)
+        if opt:
             opt.step()
 
-        return out4, loss1
+        return pred, loss

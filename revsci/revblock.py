@@ -45,7 +45,7 @@ class RevBlock(nn.Module):
             h_curr = torch.cat([h_curr, h_new], dim=1)
         return h_curr
 
-    def reverse(self, y: torch.Tensor):
+    def reverse(self, y: torch.Tensor) -> torch.Tensor:
         l = split_n_features(y, self.n)
         h_new = l[-1] - self.f[-1](l[-2])
         h_curr = h_new
