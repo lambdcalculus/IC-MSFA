@@ -82,6 +82,7 @@ class Rev3DCNN(nn.Module):
                      loss_fn: Callable[[Tensor, Tensor], Tensor],
                      opt: Optional[Optimizer]) -> tuple[Tensor, Tensor]:
         """Memory-efficient training using reversability. Uses less memory, but takes longer.
+
         Executes backpropagation for one batch, stepping the optimizer, if passed.
 
         Args:
@@ -94,17 +95,19 @@ class Rev3DCNN(nn.Module):
             torch.Tensor: the model's predcition
             torch.Tensor: the loss from prediction vs. ground-truth
         """
-        # TODO: it may be possible to optimize this further? as things are currently,
-        # we're going through every layer except conv2 twice
+        unf: Tensor = self.unflatten(raw).unsqueeze(1)
 
-        unf: Tensor = self.unflatten(raw)
+        # compute conv1, with grads. we keep it saved
+        out_conv1: Tensor = self.conv1(unf)
 
-        # only compute grads for conv2
+        # skip grads for rev-blocks
+        out = out_conv1
         with torch.no_grad():
-            out: Tensor = self.conv1(unf.unsqueeze(1))
             for layer in self.layers:
                 out = layer(out)
         out = out.requires_grad_()
+
+        # get grads for conv2, save the prediction
         pred: Tensor = self.conv2(out)
 
         # back-propagate, only until right before conv2
@@ -132,11 +135,11 @@ class Rev3DCNN(nn.Module):
             last_grad = out_pre.grad
             out_curr = out_pre
 
-        # now back-propagate conv1
-        out = self.conv1(unf)
-        out.requires_grad_()
-        out.backward(gradient=last_grad)
-        if opt:
+        # then we do the back-prop for conv1
+        out_conv1.backward(gradient=last_grad)
+
+        # step optimizer
+        if opt is not None:
             opt.step()
             opt.zero_grad()
 
