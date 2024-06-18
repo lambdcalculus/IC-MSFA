@@ -1,5 +1,6 @@
 from torch import Tensor
-from typing import Callable, Any
+from typing import Any
+from collections.abc import Callable
 
 def _ensure_batch(func: Callable[[Any, Tensor], Tensor]) -> Callable[[Any, Tensor], Tensor]:
     """Wraps functions that require batched inputs, allowing them to take non-batched inputs,

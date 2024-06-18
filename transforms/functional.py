@@ -1,16 +1,17 @@
 from torch import Tensor
-from typing import List
+from collections.abc import Sequence
 
-def select(img: Tensor, bands: List[int]) -> Tensor:
+def select(img: Tensor, bands: Sequence[int]) -> Tensor:
     """Selects the specified channels from `img`.
 
     Args:
         img (torch.Tensor): input tensor (shape: B x C x W x H)
-        bands (List[int]): the bands to select
+        bands (sequence of int): the bands to select
 
     Returns:
         Tensor: the image with only the selected bands (shape: B x C x W x H).
     """
+    bands = list(bands)
     return img[:, bands, :, :]
 
 def apply_msfa(img: Tensor, msfa: Tensor) -> Tensor:
@@ -47,7 +48,6 @@ def flatten(img: Tensor) -> Tensor:
         torch.Tensor: the flattened image(s) (shape: B x 1 x W x H).
     """
     return img.sum(dim=1, keepdim=True)
-
 
 def unflatten(img: Tensor, msfa: Tensor) -> Tensor:
     """Unflattens a single-channel tensor using the given MSFA.

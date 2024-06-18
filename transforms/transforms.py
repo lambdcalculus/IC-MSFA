@@ -1,37 +1,38 @@
+import torch
 import torch.nn as nn
-from torch import Tensor
-from typing import List
 
 from . import functional as F
 from .util import _ensure_batch
 
-# Uncommented right now because this is unnecessary until I make a transform that is not
-# a nn.Module. Until then, using nn.Sequential is enough to compose transforms.
-# # class Compose:
-# #     """
-# #     Composes a list of transforms into one.
-# #     """
-# #     def __init__(self, transforms: List[Callable]) -> None:
-# #         self.transforms = transforms
+from torch import Tensor
+from collections.abc import Callable, Sequence
 
-# #     def __call__(self, img: Tensor) -> Tensor:
-# #         for transform in self.transforms:
-# #             img = transform(img)
-# #         return img
+class Compose:
+    """Composes a list of transforms into one.
 
-# #     def __str__(self) -> str:
-# #         msg = "Composed transform of:"
-# #         for i, transform in enumerate(self.transforms):
-# #             msg += f"\n({i}): {str(transform)}"
-# #         return msg
+    Args:
+        transforms (sequence of Callable[[Tensor], Tensor]): list of transforms to compose.
+    """
+
+    def __init__(self, transforms: Sequence[Callable[[Tensor], Tensor]]) -> None:
+        self.transforms = transforms
+
+    def __call__(self, img: Tensor) -> Tensor:
+        for transform in self.transforms:
+            img = transform(img)
+        return img
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(transforms={self.transforms})"
 
 class Select(nn.Module):
     """Selects the specified bands/channels.
     
     Args:
-        bands (List[int]): list of bands/channels to select.
+        bands (sequence of int): list of bands/channels to select.
     """
-    def __init__(self, bands: List[int]) -> None:
+
+    def __init__(self, bands: Sequence[int]) -> None:
         super().__init__()
         self.bands = bands
 
@@ -56,6 +57,7 @@ class MSFA(nn.Module):
     Args:
         msfa (torch.Tensor): MSFA to use for filtering
     """
+
     def __init__(self, msfa: Tensor):
         super().__init__()
         # TODO: implement a class with requires_grad=True
@@ -78,7 +80,10 @@ class MSFA(nn.Module):
 
 class Flatten(nn.Module):
     """Flattens a sparse multi-band image into a 2D image, resembling raw sensor data.
-    This is intended to be used with images that have gone through an MSFA filter."""
+
+    This is intended to be used with images that have gone through a MSFA filter.
+    """
+
     def __init__(self):
         super().__init__()
 
@@ -104,6 +109,7 @@ class Unflatten(nn.Module):
     Args:
         msfa (torch.Tensor): MSFA to use.
     """
+
     def __init__(self, msfa: Tensor) -> None:
         super().__init__()
         self.msfa = nn.Parameter(msfa, requires_grad=False)

@@ -1,14 +1,18 @@
 import torch
 import torch.nn as nn
-from torch.optim import Optimizer
+
 from .revblock import RevBlock
 from transforms import Unflatten
-from typing import Callable, Optional, Tuple
+
+from typing import Optional
+from collections.abc import Callable
+from torch import Tensor # makes typing a little nicer
+from torch.optim import Optimizer
 
 class Rev3DCNN(nn.Module):
-    """
-    Implementation of RevSCI, from:
+    """Implementation of RevSCI, from:
     Z. Cheng et al., "Memory-Efficient Network for Large-scale Video Compressive Sensing," doi: 10.1109/CVPR46437.2021.01598.
+
     And code based on: https://github.com/BoChenGroup/RevSCI-net.
 
     Args:
@@ -16,8 +20,9 @@ class Rev3DCNN(nn.Module):
         n_blocks (int): number of reversible blocks.
         n_split (int): number of splits in each rev block.
     """
-    def __init__(self, msfa: torch.Tensor, n_blocks: int, n_split: int):
-        super(Rev3DCNN, self).__init__()
+
+    def __init__(self, msfa: Tensor, n_blocks: int, n_split: int):
+        super().__init__()
 
         # unflatten raw data
         self.unflatten = Unflatten(msfa)
@@ -49,37 +54,39 @@ class Rev3DCNN(nn.Module):
             nn.LeakyReLU(inplace=True),
             nn.Conv3d(32, 16, kernel_size=1, stride=1),
             nn.LeakyReLU(inplace=True),
-            nn.Conv3d(16, n_bands, kernel_size=3, stride=1, padding=1),
+            nn.Conv3d(16, 1, kernel_size=3, stride=1, padding=1),
         )
 
-    def forward(self, raw: torch.Tensor):
+    def forward(self, raw: Tensor) -> Tensor:
         """
         Args:
-            raw (torch.Tensor): the raw single-channel image (shape: B x 1 x W x H).
+            raw (Tensor): the raw single-channel image (shape: B x 1 x W x H).
 
         Returns:
-            torch.Tensor: the demosaicked image (shape: B x C x W x H).
+            Tensor: the demosaicked image (shape: B x C x W x H).
         """
-        out: torch.Tensor = self.unflatten(raw)
-        out = self.conv1(out.unsqueeze(2))
+        out: Tensor = self.unflatten(raw)
+
+        # input shape: B x 1 x D x W x H
+        # bands go on D
+        out = self.conv1(out.unsqueeze(1))
         for layer in self.layers:
             out = layer(out)
-        out = self.conv2(out).squeeze(2)
+        out = self.conv2(out).squeeze(1)
         return out
 
     def for_backward(self,
-                     raw: torch.Tensor,
-                     gt: torch.Tensor,
-                     loss_fn: Callable,
-                     opt: Optional[Optimizer]) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Memory-efficient training using reversability. Uses less memory, but takes longer.
-        Executes one mini-batch backpropagation.
+                     raw: Tensor,
+                     gt: Tensor,
+                     loss_fn: Callable[[Tensor, Tensor], Tensor],
+                     opt: Optional[Optimizer]) -> tuple[Tensor, Tensor]:
+        """Memory-efficient training using reversability. Uses less memory, but takes longer.
+        Executes backpropagation for one batch, stepping the optimizer, if passed.
 
         Args:
             raw (torch.Tensor): batch to run (shape: B x 1 x W x H)
             gt (torch.Tensor): ground-truth/target (shape: B x C x W x H)
-            loss_fn (Callable): loss function to use
+            loss_fn (Callable[[torch.Tensor, torch.Tensor], torch.Tensor]): loss function to use
             opt (torch.Optimizer): optimizer to use (optional)
 
         Returns:
@@ -89,15 +96,15 @@ class Rev3DCNN(nn.Module):
         # TODO: it may be possible to optimize this further? as things are currently,
         # we're going through every layer except conv2 twice
 
-        unf: torch.Tensor = self.unflatten(raw)
+        unf: Tensor = self.unflatten(raw)
 
         # only compute grads for conv2
         with torch.no_grad():
-            out: torch.Tensor = self.conv1(unf.unsqueeze(2))
+            out: Tensor = self.conv1(unf.unsqueeze(2))
             for layer in self.layers:
                 out = layer(out)
         out = out.requires_grad_()
-        pred: torch.Tensor = self.conv2(out)
+        pred: Tensor = self.conv2(out)
 
         # back-propagate, only until right before conv2
         loss = loss_fn(pred.squeeze(2), gt)
@@ -117,7 +124,7 @@ class Rev3DCNN(nn.Module):
             # the values on this tensor are the same as out_curr, but they have gradients now
             # TODO: maybe something more manual would be faster? we already have out_cur without
             # gradients, maybe there's a quicker way to set them up
-            out_curr_with_grad: torch.Tensor = layer(out_pre)
+            out_curr_with_grad: Tensor = layer(out_pre)
             out_curr_with_grad.backward(gradient=last_grad)
 
             # set up next iteration
