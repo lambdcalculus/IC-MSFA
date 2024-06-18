@@ -27,10 +27,11 @@ class Rev3DCNN(nn.Module):
         # unflatten raw data
         self.unflatten = Unflatten(msfa)
         
-        n_bands = msfa.shape[0]
         # encoding / feature extraction
         self.conv1 = nn.Sequential(
-            nn.Conv3d(n_bands, 16, kernel_size=5, stride=1, padding=2),
+            # input shape: B x 1 x D x W x H
+            #         bands go here^
+            nn.Conv3d(1, 16, kernel_size=5, stride=1, padding=2),
             nn.LeakyReLU(inplace=True),
             nn.Conv3d(16, 32, kernel_size=3, stride=1, padding=1),
             nn.LeakyReLU(inplace=True),
@@ -100,14 +101,14 @@ class Rev3DCNN(nn.Module):
 
         # only compute grads for conv2
         with torch.no_grad():
-            out: Tensor = self.conv1(unf.unsqueeze(2))
+            out: Tensor = self.conv1(unf.unsqueeze(1))
             for layer in self.layers:
                 out = layer(out)
         out = out.requires_grad_()
         pred: Tensor = self.conv2(out)
 
         # back-propagate, only until right before conv2
-        loss = loss_fn(pred.squeeze(2), gt)
+        loss = loss_fn(pred, gt.unsqueeze(1))
         loss.backward()
 
         # setting up reversal
@@ -137,5 +138,6 @@ class Rev3DCNN(nn.Module):
         out.backward(gradient=last_grad)
         if opt:
             opt.step()
+            opt.zero_grad()
 
-        return pred, loss
+        return pred.squeeze(1), loss
