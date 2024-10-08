@@ -6,6 +6,7 @@ from scipy.io import loadmat
 from typing import Optional
 from collections.abc import Callable
 
+# TODO: use stuff from transforms.util to load mat files
 class MatDataset(Dataset):
     """Reads MATLAB files into a dataset.
 

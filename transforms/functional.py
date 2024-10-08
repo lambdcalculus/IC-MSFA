@@ -1,5 +1,56 @@
+import torch
 from torch import Tensor
 from collections.abc import Sequence
+
+def apply_illuminant(img: Tensor, illum: Tensor) -> Tensor:
+    """Applies an illuminant.
+
+    Applies a CIE illuminant <https://en.wikipedia.org/wiki/Standard_illuminant> to
+    acquire luminance data from reflectance data.
+
+    When flattened, `illum` should contain the illuminance for each channel in `img`,
+    in order.
+
+    Args:
+        img: reflectance data (shape: B x C x W x H)
+        illum: illuminant to use (C elements)
+
+    Returns:
+        luminance data (shape: B x C x W x H)
+    """
+    assert img.shape[1] == illum.numel(), f"illum has {illum.numel()} but image has {img.shape[1]} channels."
+
+    illum_matrix = torch.diag(illum.flatten()) / illum.max() # normalized linear transform
+    img_pixels = img.flatten(start_dim=2, end_dim=3)         # shape: B x C x num_pixels
+
+    # matmul handles the batched input fine
+    lum_pixels = illum_matrix.matmul(img_pixels) # shape: B x C x num_pixels
+    return lum_pixels.reshape(img.shape)         # shape: B x C x W x H
+
+def apply_sensitivity(img: Tensor, sens: Tensor) -> Tensor:
+    """Applies filter sensitivity.
+
+    This is used to emulate ground-truth data for MSFA cameras. If the camera
+    has N bands and the luminance data has M, then `sens` should be an N x M
+    matrix. The i-th row specifies the sensitivities of the filter used for the
+    i-th band. This function applies this matrix transformation to `img`.
+
+    Thus, the output is as follows: for each pixel, the i-th component is the
+    reading that the sensor for that pixel would have if that sensor had the
+    filter for i-th band over it.
+
+    Args:
+        img: luminance data (B x C x W x H)
+        sens: filter sensitivities (N x C)
+
+    Returns:
+        ground-truth camera data/filter response data (B x N x W x H)
+    """
+    img_pixels = img.flatten(start_dim=2, end_dim=3) # shape: B x C x num_pixels
+
+    # matmul handles the batched input fine
+    gt_pixels = sens.matmul(img_pixels) # shape: B x N x num_pixels
+    return gt_pixels.reshape(img.shape[0], -1, img.shape[2], img.shape[3]) # shape: B x N x W x H
 
 def select(img: Tensor, bands: Sequence[int]) -> Tensor:
     """Selects the specified channels from `img`.
@@ -9,10 +60,27 @@ def select(img: Tensor, bands: Sequence[int]) -> Tensor:
         bands (sequence of int): the bands to select
 
     Returns:
-        Tensor: the image with only the selected bands (shape: B x C x W x H).
+        Tensor: the image with only the selected bands (shape: B x len(bands) x W x H).
     """
     bands = list(bands)
     return img[:, bands, :, :]
+
+def repeat_msfa(msfa: Tensor, size: Sequence[int]):
+    """Repeats the MSFA to the specified size.
+
+    Args:
+        msfa: the MSFA to repeat (shape: C x X x Y)
+        size: the desired size (W, H)
+
+    Returns:
+        repeated MSFA (shape: C x W x H).
+    """
+    assert len(size) == 2, f"`size` has {len(size)} elements, should have 2"
+    # and expand to match the batches
+    rx = size[0] // msfa.shape[1] + 1
+    ry = size[1] // msfa.shape[2] + 1
+    repeated = msfa.repeat(1, rx, ry)[:, :size[0], :size[1]]
+    return repeated
 
 def apply_msfa(img: Tensor, msfa: Tensor) -> Tensor:
     """Applies the passed MSFA to `img`.
@@ -28,9 +96,7 @@ def apply_msfa(img: Tensor, msfa: Tensor) -> Tensor:
     assert img.shape[1] == msfa.shape[0], f"`img` has {img.shape[1]} channels while `msfa` has {msfa.shape[0]}."
 
     # We repeat the MSFA to the shape of the input.
-    rx = img.shape[2] // msfa.shape[1] + 1
-    ry = img.shape[3] // msfa.shape[2] + 1
-    repeated = msfa.repeat(1, rx, ry)[:, :img.shape[2], :img.shape[3]]
+    repeated = repeat_msfa(msfa, (img.shape[2], img.shape[3]))
 
     # and expand to match the batches
     repeated = repeated.unsqueeze(0).expand(img.shape[0], -1, -1, -1)
@@ -65,9 +131,7 @@ def unflatten(img: Tensor, msfa: Tensor) -> Tensor:
     repeated_x = img.expand(-1, msfa.shape[0], -1, -1)
 
     # We repeat the MSFA to the shape of the input.
-    rx = img.shape[2] // msfa.shape[1] + 1
-    ry = img.shape[3] // msfa.shape[2] + 1
-    repeated_msfa = msfa.repeat(1, rx, ry)[:, :img.shape[2], :img.shape[3]]
+    repeated_msfa = repeat_msfa(msfa, (img.shape[2], img.shape[3]))
 
     # and expand to match the batches
     repeated_msfa = repeated_msfa.unsqueeze(0).expand(img.shape[0], -1, -1, -1)
