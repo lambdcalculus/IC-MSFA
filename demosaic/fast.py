@@ -28,6 +28,7 @@ class Fast(nn.Module):
         Returns:
             torch.Tensor: demosaicked image (shape: B x C x W x H).
         """
+        orig_size = raw.shape[2:]
         out = F.conv2d(raw, self.kernel, stride=self.kernel_size)
-        out = F.interpolate(out, scale_factor=self.kernel_size, mode="bilinear", align_corners=False)
+        out = F.interpolate(out, size=orig_size, mode="bilinear", align_corners=False)
         return out
