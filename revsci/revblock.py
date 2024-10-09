@@ -35,7 +35,9 @@ class RevBlock(nn.Module):
 
     Splits the image into `n` features, and applies `f_g_layer` successively,
     concatenating the results as it goes. As such, there will be in total `in_channels // n` layers inside the block.
-    The shape of the tensor is preserved throughout.
+    `n` must divide `in_channels`. The shape of the tensor is preserved throughout
+
+    TODO (?): make it so `n` doesn't need to divide in_channels
 
     Args:
         in_channels (int): number of input (and output) channels
