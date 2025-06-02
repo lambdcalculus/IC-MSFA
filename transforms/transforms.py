@@ -103,7 +103,7 @@ class FilterSensitivity(nn.Module):
         return F.apply_sensitivity(img, self.sens)
 
     def __repr__(self):
-        return f"{self.__class__.__name__}(illum={self.illum})"
+        return f"{self.__class__.__name__}(illum={self.sens})"
 
 class Select(nn.Module):
     """Selects the specified bands/channels.

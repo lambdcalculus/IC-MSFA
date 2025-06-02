@@ -3,12 +3,14 @@ from numpy import ndarray, array
 from numpy.typing import NDArray
 
 from typing import Callable, Any
+from functools import wraps
 
 def _ensure_numpy(func: Callable[[Any, NDArray], NDArray]) -> Callable[[Any, NDArray | Tensor], NDArray | Tensor]:
     """
     Wraps methods that take numpy arrays so that they can take torch tensors or numpy arrays,
     and return the same type as they receive.
     """
+    @wraps(func)
     def numpy_ensured(self, img: NDArray | Tensor) -> NDArray | Tensor:
         if isinstance(img, ndarray):
             return func(self, img)
@@ -25,11 +27,7 @@ def _ensure_numpy(func: Callable[[Any, NDArray], NDArray]) -> Callable[[Any, NDA
         orig_device = img.device
         img_np: NDArray = img.cpu().numpy()
 
-        # loop through the batch with a for loop. not fast, but works
-        outs: list[NDArray] = []
-        for i in range(img_np.shape[0]):
-            outs.append(func(self, img_np[i]))
-        img_np = array(outs)
+        img_np = array([func(self, img_np[i]) for i in range(img_np.shape[0])])
 
         # bring back to torch
         img = from_numpy(img_np).to(orig_device)
