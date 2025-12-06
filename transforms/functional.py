@@ -27,29 +27,33 @@ def apply_illuminant(img: Tensor, illum: Tensor) -> Tensor:
     lum_pixels = illum_matrix.matmul(img_pixels) # shape: B x C x num_pixels
     return lum_pixels.reshape(img.shape)         # shape: B x C x W x H
 
-def apply_sensitivity(img: Tensor, sens: Tensor) -> Tensor:
-    """Applies filter sensitivity.
+def apply_cmf(img: Tensor, cmf: Tensor) -> Tensor:
+    """Applies a color-matching function to an input luminance image.
 
-    This is used to emulate ground-truth data for MSFA cameras. If the camera
-    has N bands and the luminance data has M, then `sens` should be an N x M
-    matrix. The i-th row specifies the sensitivities of the filter used for the
-    i-th band. This function applies this matrix transformation to `img`.
-
-    Thus, the output is as follows: for each pixel, the i-th component is the
+    If the input luminance is of shape C x W x H, the CMF should emulate the
+    response of an observer to C wave-lengths, having shape N x C for some N.
+    For each pixel, the output is:
+        ```
+        pixel_out = cmf @ pixel_in
+        ```
+    This can be used to emulate ground-truth data for snapshot MSFA cameras, as
+    long as the CMF matches the response of the filters used by the camera.
+    
+    In that case, the output is as follows: for each pixel, the i-th component is the
     reading that the sensor for that pixel would have if that sensor had the
     filter for i-th band over it.
 
     Args:
         img: luminance data (B x C x W x H)
-        sens: filter sensitivities (N x C)
+        cmf: color-matching function (N x C)
 
     Returns:
-        ground-truth camera data/filter response data (B x N x W x H)
+        CMF response (B x N x W x H)
     """
     img_pixels = img.flatten(start_dim=2, end_dim=3) # shape: B x C x num_pixels
 
     # matmul handles the batched input fine
-    gt_pixels = sens.matmul(img_pixels) # shape: B x N x num_pixels
+    gt_pixels = cmf.matmul(img_pixels) # shape: B x N x num_pixels
     return gt_pixels.reshape(img.shape[0], -1, img.shape[2], img.shape[3]) # shape: B x N x W x H
 
 def select(img: Tensor, bands: Sequence[int]) -> Tensor:

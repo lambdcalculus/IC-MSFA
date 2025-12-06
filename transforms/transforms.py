@@ -65,31 +65,29 @@ class Illuminant(nn.Module):
     def __repr__(self):
         return f"{self.__class__.__name__}(illum={self.illum})"
 
-class FilterSensitivity(nn.Module):
-    """Applies filter sensitivity.
+class Observer(nn.Module):
+    """Applies an observer's CMF.
 
-    This is used to emulate ground-truth data for MSFA cameras. See
-    `apply_sensitivity` for more details.
-
-    TODO: allow for loading from files
+    This can used to emulate ground-truth data for MSFA cameras. See
+    `apply_cmf` for more details.
 
     Args:
-        sens: filter sensitivities (N x C)
+        cmf: filter sensitivities (N x C)
     """
 
-    def __init__(self, sens: Tensor | str, transpose: bool = False) -> None:
+    def __init__(self, cmf: Tensor | str, transpose: bool = False) -> None:
         super().__init__()
-        if isinstance(sens, str):
-            if sens.endswith(".mat"):
-                sens = load_mat(sens)
-            elif sens.endswith(".csv"):
-                sens = load_csv(sens)
+        if isinstance(cmf, str):
+            if cmf.endswith(".mat"):
+                cmf = load_mat(cmf)
+            elif cmf.endswith(".csv"):
+                cmf = load_csv(cmf)
             else:
-                raise ValueError(f"{sens} is not a .mat or .csv file.")
+                raise ValueError(f"{cmf} is not a .mat or .csv file.")
 
         if transpose:
-            sens = sens.T
-        self.sens = nn.Parameter(sens, requires_grad=False)
+            cmf = cmf.T
+        self.cmf = nn.Parameter(cmf, requires_grad=False)
 
     @_ensure_batch
     def forward(self, img: Tensor) -> Tensor:
@@ -98,12 +96,12 @@ class FilterSensitivity(nn.Module):
             img: luminance data (B x C x W x H)
 
         Returns:
-            ground-truth camera data/filter response data (B x N x W x H)
+            observer response (B x N x W x H)
         """
-        return F.apply_sensitivity(img, self.sens)
+        return F.apply_cmf(img, self.cmf)
 
     def __repr__(self):
-        return f"{self.__class__.__name__}(illum={self.sens})"
+        return f"{self.__class__.__name__}(cmf={self.cmf})"
 
 class Select(nn.Module):
     """Selects the specified bands/channels.
@@ -131,7 +129,7 @@ class Select(nn.Module):
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(bands={self.bands})"
 
-class MSFA(nn.Module):
+class ApplyMSFA(nn.Module):
     """Applies color filtering with a MSFA.
 
     Args:
@@ -140,7 +138,6 @@ class MSFA(nn.Module):
 
     def __init__(self, msfa: Tensor):
         super().__init__()
-        # TODO: implement a class with requires_grad=True
         self.msfa = nn.Parameter(msfa, requires_grad=False)
 
     @_ensure_batch

@@ -1,0 +1,51 @@
+train:
+  epochs: 400
+
+  batch_train: 1
+  workers_train: 6
+  batch_test: 1
+  workers_test: 6
+
+  amp: true
+
+  # optim: adam
+  lr: 0.0002
+  # scheduler: exponential
+  decay_factor: 0.995
+
+  # loss: allow l1 or custom loss
+
+  checkpoint_interval: 10
+  metrics_report_interval: 5
+  
+  rev_mode: false
+
+revsci:
+  n_blocks: 24
+  n_split: 2
+
+msfa:
+  # ["osp", "tokyotech_rgbco", "tunable"]
+  method: "tunable"
+
+  n_bands: 5
+
+  # for tunable
+  coef: 1.0
+  init: "uniform"
+  ramp: true
+  norm: "softmax"
+
+preprocess:
+  # ["none", "d65"]
+  illuminant: "d65"
+
+  # ["ideal", "gaussian", "tokyotech"]
+  observer: "gaussian"
+  # used for ideal and gaussian:
+  wls_out: [440, 500, 560, 620, 680]
+
+  size: 256
+
+finetune:
+  epoch_freeze: 200

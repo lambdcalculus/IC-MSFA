@@ -1,10 +1,11 @@
 import torch
 import os
 from torch.utils.data import Dataset
-from scipy.io import loadmat
 
 from typing import Optional
 from collections.abc import Callable
+
+from transforms.util import load_mat
 
 # TODO: use stuff from transforms.util to load mat files
 class MatDataset(Dataset):
@@ -27,8 +28,9 @@ class MatDataset(Dataset):
 
     def __getitem__(self, i):
         file = os.path.join(self.img_dir, self.files[i])
-        data = loadmat(file)
-        image = torch.Tensor(data['img']).transpose(0, 2) # C x W x H
+        # data = load_mat(file)
+        # TODO: leave the transpose in the transforms
+        image = load_mat(file).transpose(0, 2) # C x W x H
 
         x, y = image, image
         with torch.no_grad():
