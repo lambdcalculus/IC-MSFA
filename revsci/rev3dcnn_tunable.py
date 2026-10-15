@@ -23,14 +23,15 @@ class Rev3DCNN(nn.Module):
             the block (`torch.utils.checkpoint`, kept as a reference). All three compute the
             same gradients, up to rounding.
         fp32_stream (bool): keep the rev blocks' inputs/outputs (the additive couplings) in fp32
-            under autocast, while the convolutions inside them still run in fp16. Changes the
-            forward numerics under AMP (by default the whole stack runs in fp16); no effect
-            without autocast.
+            under autocast, while the convolutions inside them still run in fp16. With it, the
+            reversible backward reconstructs the block inputs exactly enough that its gradients
+            match autograd's bit for bit. False runs the whole stack in fp16 under AMP, as every
+            run before this option existed did. No effect without autocast.
     """
 
     def __init__(self, n_blocks: int, n_split: int,
                  mode: Literal["autograd", "reversible", "checkpoint"] = "autograd",
-                 fp32_stream: bool = False):
+                 fp32_stream: bool = True):
         super().__init__()
 
         if mode not in ("autograd", "reversible", "checkpoint"):
@@ -80,7 +81,7 @@ class Rev3DCNN(nn.Module):
         # input shape: B x 1 x D x W x H
         # bands go on D
         out = self.conv1(mosaic.unsqueeze(1))
-        if self.fp32_stream:
+        if self.fp32_stream and out.dtype in (torch.float16, torch.bfloat16):
             # the additions in RevBlock then promote to fp32; the convs still autocast to fp16
             out = out.float()
 
