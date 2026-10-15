@@ -1,7 +1,10 @@
+import torch
 import torch.nn as nn
+from torch.utils.checkpoint import checkpoint
 
-from .revblock import RevBlock
+from .revblock import RevBlock, rev_stack
 
+from typing import Literal
 from torch import Tensor # makes typing a little nicer
 
 class Rev3DCNN(nn.Module):
@@ -14,10 +17,26 @@ class Rev3DCNN(nn.Module):
         msfa (torch.Tensor): MSFA to use against the raw data (shape: C x X x Y).
         n_blocks (int): number of reversible blocks.
         n_split (int): number of splits in each rev block.
+        mode (str): how gradients go through the rev blocks while training. "autograd" stores
+            every activation; "reversible" stores only the last block's output and reconstructs
+            the rest in the backward pass; "checkpoint" stores each block's input and recomputes
+            the block (`torch.utils.checkpoint`, kept as a reference). All three compute the
+            same gradients, up to rounding.
+        fp32_stream (bool): keep the rev blocks' inputs/outputs (the additive couplings) in fp32
+            under autocast, while the convolutions inside them still run in fp16. Changes the
+            forward numerics under AMP (by default the whole stack runs in fp16); no effect
+            without autocast.
     """
 
-    def __init__(self, n_blocks: int, n_split: int):
+    def __init__(self, n_blocks: int, n_split: int,
+                 mode: Literal["autograd", "reversible", "checkpoint"] = "autograd",
+                 fp32_stream: bool = False):
         super().__init__()
+
+        if mode not in ("autograd", "reversible", "checkpoint"):
+            raise ValueError(f"unknown mode {mode!r}")
+        self.mode = mode
+        self.fp32_stream = fp32_stream
 
         # encoding / feature extraction
         self.conv1 = nn.Sequential(
@@ -61,76 +80,18 @@ class Rev3DCNN(nn.Module):
         # input shape: B x 1 x D x W x H
         # bands go on D
         out = self.conv1(mosaic.unsqueeze(1))
-        for layer in self.layers:
-            out = layer(out)
+        if self.fp32_stream:
+            # the additions in RevBlock then promote to fp32; the convs still autocast to fp16
+            out = out.float()
+
+        if self.mode == "reversible" and torch.is_grad_enabled():
+            out = rev_stack(out, self.layers)
+        elif self.mode == "checkpoint" and torch.is_grad_enabled():
+            for layer in self.layers:
+                out = checkpoint(layer, out, use_reentrant=False)
+        else:
+            for layer in self.layers:
+                out = layer(out)
+
         out = self.conv2(out).squeeze(1)
         return out
-
-    # def for_backward(self,
-    #                  raw: Tensor,
-    #                  gt: Tensor,
-    #                  loss_fn: Callable[[Tensor, Tensor], Tensor],
-    #                  opt: Optional[Optimizer]) -> tuple[Tensor, Tensor]:
-    #     """Memory-efficient training using reversability. Uses less memory, but takes longer.
-
-    #     Executes backpropagation for one batch, stepping the optimizer, if passed.
-
-    #     Args:
-    #         raw (torch.Tensor): batch to run (shape: B x 1 x W x H)
-    #         gt (torch.Tensor): ground-truth/target (shape: B x C x W x H)
-    #         loss_fn (Callable[[torch.Tensor, torch.Tensor], torch.Tensor]): loss function to use
-    #         opt (torch.Optimizer): optimizer to use (optional)
-
-    #     Returns:
-    #         torch.Tensor: the model's predcition
-    #         torch.Tensor: the loss from prediction vs. ground-truth
-    #     """
-    #     unf: Tensor = self.unflatten(raw).unsqueeze(1)
-
-    #     # compute conv1, with grads. we keep it saved
-    #     out_conv1: Tensor = self.conv1(unf)
-
-    #     # skip grads for rev-blocks
-    #     out = out_conv1
-    #     with torch.no_grad():
-    #         for layer in self.layers:
-    #             out = layer(out)
-    #     out = out.requires_grad_()
-
-    #     # get grads for conv2, save the prediction
-    #     pred: Tensor = self.conv2(out)
-
-    #     # back-propagate, only until right before conv2
-    #     loss = loss_fn(pred, gt.unsqueeze(1))
-    #     loss.backward()
-
-    #     # setting up reversal
-    #     out_curr = out
-    #     last_grad = out.grad
-    #     # we go through layers in reverse, saving only the gradients we need and
-    #     # thus saving up on memory
-    #     for layer in reversed(self.layers):
-    #         # we reverse, so we can forward again and get the grads
-    #         with torch.no_grad():
-    #             out_pre = layer.reverse(out_curr)
-    #         out_pre.requires_grad_()
-
-    #         # the values on this tensor are the same as out_curr, but they have gradients now
-    #         # TODO: maybe something more manual would be faster? we already have out_cur without
-    #         # gradients, maybe there's a quicker way to set them up
-    #         out_curr_with_grad: Tensor = layer(out_pre)
-    #         out_curr_with_grad.backward(gradient=last_grad)
-
-    #         # set up next iteration
-    #         last_grad = out_pre.grad
-    #         out_curr = out_pre
-
-    #     # then we do the back-prop for conv1
-    #     out_conv1.backward(gradient=last_grad)
-
-    #     # step optimizer
-    #     if opt is not None:
-    #         opt.step()
-    #         opt.zero_grad()
-
-    #     return pred.squeeze(1), loss

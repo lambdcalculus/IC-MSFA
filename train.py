@@ -532,7 +532,9 @@ def main(args):
                         )
 
     revsci = Rev3DCNN(n_blocks=revsci_config.get("n_blocks", 24),
-                     n_split=revsci_config.get("n_split", 2)).to(device)
+                     n_split=revsci_config.get("n_split", 2),
+                     mode="reversible" if train_config.get("rev_mode", False) else "autograd",
+                     fp32_stream=revsci_config.get("fp32_stream", False)).to(device)
     if not tunable_msfa:
         model = revsci
     else:
