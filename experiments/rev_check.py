@@ -417,7 +417,9 @@ def cmd_mem(a):
         torch.cuda.set_per_process_memory_fraction(min(1.0, a.mem_cap_gb * 2**30 / total))
         print(f"memory capped at {a.mem_cap_gb} GB for this process; OOM means 'over the cap'")
     settings = ["amp", "amp+fp32stream"] + (["fp32"] if a.fp32 else [])
-    others = [p for p in torch.cuda.list_gpu_processes().splitlines()[1:] if "process" in p]
+    # this process already holds a CUDA context (get_device_properties above), so leave it out
+    others = [p for p in torch.cuda.list_gpu_processes().splitlines()[1:]
+              if "process" in p and p.split()[1] != str(os.getpid())]
     if others:
         print("note: other processes are on the GPU, so step times are not reliable:\n  "
               + "\n  ".join(others))
