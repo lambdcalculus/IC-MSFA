@@ -4,7 +4,7 @@ from torch.utils.checkpoint import checkpoint
 
 from .revblock import RevBlock, rev_stack
 
-from typing import Literal
+from typing import Literal, Optional
 from torch import Tensor # makes typing a little nicer
 
 class Rev3DCNN(nn.Module):
@@ -24,22 +24,24 @@ class Rev3DCNN(nn.Module):
             recomputes like "reversible" but from the true block inputs, so comparing the two
             separates the reconstruction error from the recomputation itself. All three compute
             the same gradients, up to rounding.
-        fp32_stream (bool): keep the rev blocks' inputs/outputs (the additive couplings) in fp32
-            under autocast, while the convolutions inside them still run in fp16. With it, the
-            reversible backward reconstructs the block inputs exactly enough that its gradients
-            match autograd's bit for bit. False runs the whole stack in fp16 under AMP, as every
-            run before this option existed did. No effect without autocast.
+        fp32_stream (bool | None): keep the rev blocks' inputs/outputs (the additive couplings)
+            in fp32 under autocast, while the convolutions inside them still run in fp16. The
+            reversible backward then reconstructs the block inputs to ~1e-10 instead of ~1e-3,
+            and its gradients stay within ~1e-4 of autograd's instead of ~1e-3. False runs the
+            whole stack in fp16 under AMP, as every run before this option existed did. None
+            (the default) means True in "reversible" mode and False otherwise, so autograd and
+            checkpoint runs keep the old numerics. No effect without autocast.
     """
 
     def __init__(self, n_blocks: int, n_split: int,
                  mode: Literal["autograd", "reversible", "checkpoint"] = "autograd",
-                 fp32_stream: bool = True):
+                 fp32_stream: Optional[bool] = None):
         super().__init__()
 
         if mode not in ("autograd", "reversible", "checkpoint"):
             raise ValueError(f"unknown mode {mode!r}")
         self.mode = mode
-        self.fp32_stream = fp32_stream
+        self.fp32_stream = (mode == "reversible") if fp32_stream is None else fp32_stream
 
         # encoding / feature extraction
         self.conv1 = nn.Sequential(
