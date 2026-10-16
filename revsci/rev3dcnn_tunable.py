@@ -20,8 +20,10 @@ class Rev3DCNN(nn.Module):
         mode (str): how gradients go through the rev blocks while training. "autograd" stores
             every activation; "reversible" stores only the last block's output and reconstructs
             the rest in the backward pass; "checkpoint" stores each block's input and recomputes
-            the block (`torch.utils.checkpoint`, kept as a reference). All three compute the
-            same gradients, up to rounding.
+            the block (`torch.utils.checkpoint`). "checkpoint" is kept as a control: it
+            recomputes like "reversible" but from the true block inputs, so comparing the two
+            separates the reconstruction error from the recomputation itself. All three compute
+            the same gradients, up to rounding.
         fp32_stream (bool): keep the rev blocks' inputs/outputs (the additive couplings) in fp32
             under autocast, while the convolutions inside them still run in fp16. With it, the
             reversible backward reconstructs the block inputs exactly enough that its gradients
