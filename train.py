@@ -38,7 +38,10 @@ class CustomLoss(nn.Module):
 
     def forward(self, pred, gt):
         rev_loss = self.l1_rev(pred, gt)
-        entropy_loss = - (self.msfa_layer.msfa * torch.log(self.msfa_layer.msfa)).sum(dim=0).mean()
+        # clamp: at a high inverse temperature (alpha_end) softmax weights underflow to exactly 0,
+        # and 0 * log 0 is NaN, in the gradient too, even with coef 0. Bit-identical otherwise.
+        tiny = torch.finfo(torch.float32).tiny
+        entropy_loss = - (self.msfa_layer.msfa * torch.log(self.msfa_layer.msfa.clamp_min(tiny))).sum(dim=0).mean()
 
         return rev_loss, entropy_loss
 
