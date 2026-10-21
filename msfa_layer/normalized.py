@@ -16,7 +16,14 @@ class _NormalizedL1(nn.Module):
 class _NormalizedSoftmax(nn.Module):
     """Module for parametrizing NormalizedMSFA."""
 
+    def __init__(self):
+        super().__init__()
+        # inverse temperature, softmax(scale * logits); set by NormalizedMSFA.set_scale
+        self.scale = 1.0
+
     def forward(self, input: torch.Tensor) -> torch.Tensor:
+        if self.scale != 1.0:
+            input = self.scale * input
         return nn.functional.softmax(input, dim=0)
 
 class NormalizedMSFA(nn.Module):
@@ -66,6 +73,15 @@ class NormalizedMSFA(nn.Module):
             case "sum":
                 img = F.apply_msfa_sum(img, self.msfa)
         return img
+
+    def set_scale(self, scale: float) -> None:
+        """Sets the softmax's inverse temperature, so the MSFA becomes softmax(scale * logits).
+        Annealing it upwards sharpens the MSFA towards one-hot (Chakrabarti 2016). Only for
+        norm="softmax"."""
+        p = self.parametrizations.msfa[0]
+        if not isinstance(p, _NormalizedSoftmax):
+            raise ValueError("set_scale needs norm='softmax'")
+        p.scale = float(scale)
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(n_bands={self.msfa.shape[0]}, measurement={self.measurement!r})"

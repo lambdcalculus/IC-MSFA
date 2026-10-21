@@ -65,6 +65,10 @@ class TrainerConfig:
     coef: float = 0.0
     ramp: bool = False
 
+    # tunable softmax MSFA: anneal its inverse temperature from 1 to alpha_end over these
+    # epochs (None: no annealing). See Trainer._anneal
+    alpha_end: float | None = None
+
 class Trainer:
     def __init__(
         self,
@@ -157,8 +161,19 @@ class Trainer:
 
         print(" ".join(parts))
 
+    def _anneal(self, epoch: int):
+        """Chakrabarti (2016)'s quadratic schedule, alpha = 1 + (gamma * t)^2, spread over this
+        trainer's epochs: 1 at the first epoch, alpha_end at the last one."""
+        if not self.cfg.tunable_msfa or self.cfg.alpha_end is None:
+            return
+        frac = (epoch - 1) / max(self.cfg.epochs - 1, 1)
+        alpha = 1 + (self.cfg.alpha_end - 1) * frac ** 2
+        self.model[0].set_scale(alpha) # pyright: ignore[reportIndexIssue]
+        print(f"[{epoch:03d}] softmax inverse temperature: {alpha:.4f}")
+
     def train_epoch(self, epoch: int):
         self.model.train()
+        self._anneal(epoch)
 
         running = 0.0
 
@@ -559,7 +574,8 @@ def main(args):
                 rev_mode=train_config.get("rev_mode", False),
                 tunable_msfa=tunable_msfa,
                 coef=msfa_config.get("coef", 0.0),
-                ramp=msfa_config.get("ramp", False)
+                ramp=msfa_config.get("ramp", False),
+                alpha_end=msfa_config.get("alpha_end", None)
                 )
 
         trainer = Trainer(cfg, model, train_loader, test_loader, device)
@@ -577,7 +593,8 @@ def main(args):
                     rev_mode=train_config.get("rev_mode", False),
                     tunable_msfa=tunable_msfa,
                     coef=msfa_config.get("coef", 0.0),
-                    ramp=msfa_config.get("ramp", False)
+                    ramp=msfa_config.get("ramp", False),
+                    alpha_end=msfa_config.get("alpha_end", None)
                     )
 
         trainer_pre = Trainer(cfg, model, train_loader, test_loader, device)
