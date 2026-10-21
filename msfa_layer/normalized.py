@@ -22,12 +22,21 @@ class _NormalizedSoftmax(nn.Module):
 class NormalizedMSFA(nn.Module):
     """
     Optimizable MSFA layer with restriction that sum along first dimension must be 1.
+
+    `measurement` picks the forward model: "masked" multiplies the cube by the MSFA
+    (`apply_msfa`); "sum" sums over bands first, one reading per pixel, and scatters it back
+    (`apply_msfa_sum`, proposal eq. 2). Both agree for a binary MSFA.
     """
     def __init__(self, n_bands: int,
                  norm: Literal["l1", "softmax"] = "l1",
                  init: Literal["uniform", "constant"] = "uniform",
-                 generator: Optional[torch.Generator] = None):
+                 generator: Optional[torch.Generator] = None,
+                 measurement: Literal["masked", "sum"] = "masked"):
         super().__init__()
+
+        if measurement not in ("masked", "sum"):
+            raise ValueError(f"unknown measurement {measurement!r}, expected 'masked' or 'sum'")
+        self.measurement = measurement
 
         self.msfa = nn.Parameter(torch.empty(n_bands, n_bands, n_bands), requires_grad=True)
         match init:
@@ -51,8 +60,12 @@ class NormalizedMSFA(nn.Module):
         Returns:
             torch.Tensor: input tensor after filtering through MSFA (same shape as input)
         """
-        img = F.apply_msfa(img, self.msfa)
+        match self.measurement:
+            case "masked":
+                img = F.apply_msfa(img, self.msfa)
+            case "sum":
+                img = F.apply_msfa_sum(img, self.msfa)
         return img
 
     def __repr__(self) -> str:
-        return f"{self.__class__.__name__}(n_bands={self.msfa.shape[0]})"
+        return f"{self.__class__.__name__}(n_bands={self.msfa.shape[0]}, measurement={self.measurement!r})"

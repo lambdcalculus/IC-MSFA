@@ -107,6 +107,29 @@ def apply_msfa(img: Tensor, msfa: Tensor) -> Tensor:
 
     return img * repeated
 
+def apply_msfa_sum(img: Tensor, msfa: Tensor) -> Tensor:
+    """Applies the passed MSFA the way a snapshot sensor measures (proposal eq. 2), then
+    scatters the reading back into `C` channels.
+    Each pixel reads one number, the sum over channels of `img * msfa`, and channel `c` of
+    the output is that reading times `msfa[c]`. For a binary MSFA this is the same as
+    `apply_msfa`. For a soft one the input still carries one number per pixel.
+
+    Args:
+        img (torch.Tensor): input tensor (shape: B x C x W x H).
+        msfa (torch.Tensor): MSFA to use (shape: C x W x H).
+
+    Returns:
+        torch.Tensor: the scattered sensor reading (shape: B x C x W x H).
+    """
+    assert img.shape[1] == msfa.shape[0], f"`img` has {img.shape[1]} channels while `msfa` has {msfa.shape[0]}."
+
+    repeated = repeat_msfa(msfa, (img.shape[2], img.shape[3])).unsqueeze(0)
+
+    # the sensor reading (shape: B x 1 x W x H)
+    reading = (img * repeated).sum(dim=1, keepdim=True)
+
+    return reading * repeated
+
 def flatten(img: Tensor) -> Tensor:
     """Flattens a tensor's channels. Intended for images that have been filtered
     through a MSFA.

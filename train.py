@@ -493,7 +493,9 @@ def main(args):
             mosaic = NormalizedMSFA(
                     n_bands,
                     norm=msfa_config.get("norm", "l1"),
-                    init=msfa_config.get("init", "uniform")
+                    init=msfa_config.get("init", "uniform"),
+                    # "sum": proposal eq. 2; absent: the masked cube, as in the FAPESP runs
+                    measurement=msfa_config.get("measurement", "masked")
                     )
         case "rand":
             msfa = rand_msfa(n_bands)
